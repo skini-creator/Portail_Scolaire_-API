@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: portail_scolaire_db
+    environment:
+      POSTGRES_USER: admin_scolaire
+      POSTGRES_PASSWORD: MonSuperMotDePasseSecurise2026
+      POSTGRES_DB: portail_scolaire_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+      - /run/postgresql
+    networks:
+      - scolaire_network
+
+  backend:
+    build: ./backend
+    container_name: portail_scolaire_api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./backend:/code
+    environment:
+      - DATABASE_URL=postgresql://admin_scolaire:MonSuperMotDePasseSecurise2026@db:5432/portail_scolaire_dev
+      - SECRET_KEY=SUPER_SECRET_KEY_POUR_NOTRE_MVP_PORTAIL_SCOLAIRE_2026
+    depends_on:
+      - db
+    networks:
+      - scolaire_network
+
+volumes:
+  postgres_data:
+
+networks:
+  scolaire_network:
+    driver: bridge
