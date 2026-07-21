@@ -13,6 +13,7 @@ router = APIRouter(
     tags=["Gestion des Élèves (Sprint 3)"]
 )
 
+
 @router.post("/", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)
 def create_student(
     payload: StudentCreate,
@@ -27,14 +28,17 @@ def create_student(
     parent = db.query(User).filter(User.id == payload.parent_id, User.role == "PARENT").first()
     if not parent:
         raise HTTPException(
-            status_code=404, 
+            status_code=status.HTTP_404_NOT_FOUND, 
             detail="Parent introuvable ou l'utilisateur spécifié n'a pas le rôle PARENT"
         )
 
     # 2. Vérification de la classe
     classroom = db.query(SchoolClass).filter(SchoolClass.id == payload.class_id).first()
     if not classroom:
-        raise HTTPException(status_code=404, detail="Classe introuvable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Classe introuvable"
+        )
 
     # 3. Génération automatique du matricule unique
     matricule = f"MAT-2026-{uuid.uuid4().hex[:4].upper()}"
@@ -63,6 +67,24 @@ def create_student(
     db.commit()
 
     return student
+
+
+@router.get("/my-children", response_model=List[StudentResponse])
+def get_my_children(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Permet à un parent connecté de récupérer la liste de tous ses enfants rattachés.
+    """
+    if current_user.role != "PARENT":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès réservé aux utilisateurs ayant le rôle PARENT."
+        )
+
+    children = db.query(Student).filter(Student.user_id == current_user.id).all()
+    return children
 
 
 @router.get("/", response_model=List[StudentResponse])
