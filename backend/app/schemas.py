@@ -1,6 +1,24 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
+from enum import Enum
+
+
+# ==========================================
+# 0. ÉNUMÉRATIONS POUR SCHÉMAS
+# ==========================================
+
+class UserRole(str, Enum):
+    ADMIN = "ADMIN"
+    COMPTABLE = "COMPTABLE"
+    PARENT = "PARENT"
+
+
+class PaymentStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
 
 # ==========================================
 # 1. SCHÉMAS DU SPRINT 2 (Authentification & Utilisateurs)
@@ -16,29 +34,29 @@ class Token(BaseModel):
     """Schéma pour le retour du Token JWT."""
     access_token: str
     token_type: str
-    role: str
+    role: UserRole
     full_name: str
 
 
 class UserProfile(BaseModel):
     """Schéma simple pour l'utilisateur connecté."""
     id: int
-    email: str
+    email: EmailStr
     first_name: str
     last_name: str
-    role: str
+    role: UserRole
 
     class Config:
         from_attributes = True
 
 
 class UserCreate(BaseModel):
-    """Schéma pour la création d'un utilisateur par l'Admin."""
+    """Schéma pour la création d'un utilisateur par l'Admin (Parents, Comptables, etc.)."""
     email: EmailStr
     password: str
     first_name: str
     last_name: str
-    role: str  # ex: 'ADMIN', 'PARENT', 'COMPTABLE'
+    role: UserRole = UserRole.PARENT
     phone: Optional[str] = None
 
 
@@ -48,15 +66,16 @@ class UserResponse(BaseModel):
     email: EmailStr
     first_name: str
     last_name: str
-    role: str
+    role: UserRole
     phone: Optional[str] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 
 # ==========================================
-# 2. SCHÉMAS DU SPRINT 3 (Gestion Scolaire)
+# 2. SCHÉMAS DU SPRINT 3 (Gestion Scolaire & Élèves)
 # ==========================================
 
 # --- 2.1. ÉCOLE ---
@@ -116,6 +135,84 @@ class SchoolClassResponse(SchoolClassBase):
     """Schéma de retour d'une classe."""
     id: int
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- 2.4. ÉLÈVE ---
+class StudentCreate(BaseModel):
+    """Schéma pour l'inscription d'un élève par l'Admin."""
+    first_name: str
+    last_name: str
+    parent_id: int
+    class_id: int
+    school_year_id: Optional[int] = None
+
+
+class StudentResponse(BaseModel):
+    """Schéma de retour d'un élève inscrit."""
+    id: int
+    first_name: str
+    last_name: str
+    matricule: str
+    user_id: int
+    class_id: Optional[int] = None
+    class_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# 3. PAIEMENTS & FINANCES (Mise à jour Workflow)
+# ==========================================
+
+class PaymentCreate(BaseModel):
+    """Schéma pour déclarer un paiement (créé avec le statut PENDING par défaut)."""
+    student_id: int
+    amount: float
+    reference: Optional[str] = None  # Référence Mobile Money saisie par le parent (ex: R123456)
+    operator: Optional[str] = "AIRTEL_MONEY"
+
+
+class PaymentRejectRequest(BaseModel):
+    """Schéma envoyé par le comptable pour justifier un rejet de paiement."""
+    reason: Optional[str] = "Référence introuvable"
+
+
+class PaymentResponse(BaseModel):
+    """Schéma de retour complet pour les paiements (aligné sur Payment dans models.py)."""
+    id: int
+    student_account_id: int
+    amount: float
+    reference: str
+    operator: str
+    status: PaymentStatus
+    payment_date: datetime
+    created_at: datetime
+
+    # Champs de validation par le Comptable
+    validated_at: Optional[datetime] = None
+    validated_by_id: Optional[int] = None
+    rejection_reason: Optional[str] = None
+
+    # Métadonnées jointes pour le Dashboard Admin / Comptable / Parent
+    student_name: Optional[str] = None
+    class_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StudentAccountResponse(BaseModel):
+    """Schéma pour afficher l'état financier du compte d'un élève."""
+    id: int
+    student_id: int
+    total_amount: float
+    paid_amount: float
+    remaining_amount: float
+    status: str  # 'NON_SOLDE', 'PARTIEL', 'SOLDE'
 
     class Config:
         from_attributes = True

@@ -1,10 +1,38 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, DateTime, Boolean
-from sqlalchemy.orm import relationship
+import enum
 from datetime import datetime
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    ForeignKey,
+    Float,
+    DateTime,
+    Boolean,
+    Enum,
+    Text,
+)
+from sqlalchemy.orm import relationship
 from app.database import Base
 
+
 # ==========================================
-# 1. NOUVELLES TABLES : GESTION SCOLAIRE (Sprint 3)
+# 0. ÉNUMÉRATIONS (Rôles & Statuts)
+# ==========================================
+
+class UserRole(str, enum.Enum):
+    ADMIN = "ADMIN"
+    COMPTABLE = "COMPTABLE"
+    PARENT = "PARENT"
+
+
+class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"      # En attente de validation par le comptable
+    APPROVED = "APPROVED"    # Validé (impacte le montant payé)
+    REJECTED = "REJECTED"    # Rejeté avec motif
+
+
+# ==========================================
+# 1. GESTION SCOLAIRE & STRUCTURE
 # ==========================================
 
 class School(Base):
@@ -49,14 +77,14 @@ class SchoolClass(Base):
 
 
 # ==========================================
-# 2. TABLES EXISTANTES MISES À JOUR
+# 2. UTILISATEURS & ÉLÈVES
 # ==========================================
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    role = Column(String, nullable=False) # "ADMIN", "PARENT", "COMPTABLE"
+    role = Column(Enum(UserRole), default=UserRole.PARENT, nullable=False) # "ADMIN", "PARENT", "COMPTABLE"
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
@@ -66,6 +94,7 @@ class User(Base):
 
     # Relations
     students = relationship("Student", back_populates="parent")
+    validated_payments = relationship("Payment", back_populates="validated_by")
 
 
 class Student(Base):
@@ -77,11 +106,11 @@ class Student(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     
-    # Évolution Sprint 3 : Clés étrangères vers les entités structurées (rendues optionnelles temporairement pour le seed initial)
+    # Clés étrangères vers la structure
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)
     school_year_id = Column(Integer, ForeignKey("school_years.id"), nullable=True)
     
-    # On garde ces deux champs textes pour que ton script d'injection initial (lifespan) ne plante pas !
+    # Champs de rétrocompatibilité (Injection initiale / Seeding)
     class_name = Column(String, nullable=True) 
     school_year = Column(String, nullable=True) 
     
@@ -95,6 +124,10 @@ class Student(Base):
     school_year_rel = relationship("SchoolYear", back_populates="students")
 
 
+# ==========================================
+# 3. COMPTABILITÉ & PAIEMENTS
+# ==========================================
+
 class StudentAccount(Base):
     __tablename__ = "student_accounts"
 
@@ -103,7 +136,7 @@ class StudentAccount(Base):
     total_amount = Column(Float, default=0.0)      
     paid_amount = Column(Float, default=0.0)       
     remaining_amount = Column(Float, default=0.0)  
-    status = Column(String, default="NON_SOLDE")   
+    status = Column(String, default="NON_SOLDE")   # Ex: "SOLDE", "NON_SOLDE"
 
     # Relations
     student = relationship("Student", back_populates="account")
@@ -117,10 +150,17 @@ class Payment(Base):
     student_account_id = Column(Integer, ForeignKey("student_accounts.id"), nullable=False)
     amount = Column(Float, nullable=False)
     reference = Column(String, unique=True, index=True, nullable=False) 
-    operator = Column(String, nullable=False) 
+    operator = Column(String, nullable=False) # Ex: "AIRTEL_MONEY", "MOOV_MONEY"
     payment_date = Column(DateTime, default=datetime.utcnow)
-    status = Column(String, default="VALIDE") 
+    
+    # Workflow de validation par le Comptable
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
+    validated_at = Column(DateTime, nullable=True)
+    validated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relations
     account = relationship("StudentAccount", back_populates="payments")
+    validated_by = relationship("User", back_populates="validated_payments")

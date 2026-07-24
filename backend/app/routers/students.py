@@ -49,7 +49,8 @@ def create_student(
         last_name=payload.last_name,
         matricule=matricule,
         user_id=payload.parent_id,
-        class_id=payload.class_id
+        class_id=payload.class_id,
+        class_name=classroom.name  # Popule aussi class_name lors de la création
     )
     db.add(student)
     db.commit()
@@ -75,7 +76,7 @@ def get_my_children(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Permet à un parent connecté de récupérer la liste de tous ses enfants rattachés.
+    Permet à un parent connecté de récupérer la liste de tous ses enfants rattachés avec le nom de leur classe.
     """
     if current_user.role != "PARENT":
         raise HTTPException(
@@ -83,7 +84,20 @@ def get_my_children(
             detail="Accès réservé aux utilisateurs ayant le rôle PARENT."
         )
 
-    children = db.query(Student).filter(Student.user_id == current_user.id).all()
+    # Jointure avec la table des classes
+    results = (
+        db.query(Student, SchoolClass.name.label("class_name_joined"))
+        .outerjoin(SchoolClass, Student.class_id == SchoolClass.id)
+        .filter(Student.user_id == current_user.id)
+        .all()
+    )
+
+    children = []
+    for student, class_name in results:
+        # S'assure que le champ class_name est bien rempli pour Pydantic
+        student.class_name = class_name or student.class_name
+        children.append(student)
+
     return children
 
 
@@ -93,4 +107,15 @@ def list_students(
     _current_user = Depends(get_current_user)
 ):
     """Liste tous les élèves enregistrés."""
-    return db.query(Student).all()
+    results = (
+        db.query(Student, SchoolClass.name.label("class_name_joined"))
+        .outerjoin(SchoolClass, Student.class_id == SchoolClass.id)
+        .all()
+    )
+
+    students = []
+    for student, class_name in results:
+        student.class_name = class_name or student.class_name
+        students.append(student)
+
+    return students

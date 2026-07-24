@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.database import get_db
-from app.models import School, SchoolYear, SchoolClass
+from app.models import School, SchoolYear, SchoolClass, UserRole
 from app.schemas import (
     SchoolCreate, SchoolResponse,
     SchoolYearCreate, SchoolYearResponse,
@@ -25,10 +25,14 @@ router = APIRouter(
 def create_school(
     payload: SchoolCreate, 
     db: Session = Depends(get_db),
-    _current_user = Depends(RoleChecker(["ADMIN"])) # Seul l'ADMIN crée l'école
+    _current_user = Depends(RoleChecker([UserRole.ADMIN])) # Utilisation de l'Enum UserRole
 ):
     """Enregistre un nouvel établissement scolaire (ADMIN uniquement)."""
-    school = School(name=payload.name, address=payload.address, phone=payload.phone)
+    school = School(
+        name=payload.name, 
+        address=getattr(payload, 'address', None), 
+        phone=getattr(payload, 'phone', None)
+    )
     db.add(school)
     db.commit()
     db.refresh(school)
@@ -52,7 +56,7 @@ def list_schools(
 def create_school_year(
     payload: SchoolYearCreate, 
     db: Session = Depends(get_db),
-    _current_user = Depends(RoleChecker(["ADMIN"]))
+    _current_user = Depends(RoleChecker([UserRole.ADMIN]))
 ):
     """Crée une nouvelle année scolaire (ex: 2025-2026) (ADMIN uniquement)."""
     # Si la nouvelle année est définie comme active, on désactive d'abord les autres
@@ -83,22 +87,32 @@ def list_school_years(
 def create_class(
     payload: SchoolClassCreate, 
     db: Session = Depends(get_db),
-    _current_user = Depends(RoleChecker(["ADMIN"]))
+    _current_user = Depends(RoleChecker([UserRole.ADMIN]))
 ):
     """Crée une classe associée à une école et une année scolaire spécifiques (ADMIN uniquement)."""
     # Vérifications des clés étrangères existantes
     school = db.query(School).filter(School.id == payload.school_id).first()
     if not school:
-        raise HTTPException(status_code=404, detail="Établissement scolaire introuvable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Établissement scolaire introuvable"
+        )
         
     year = db.query(SchoolYear).filter(SchoolYear.id == payload.school_year_id).first()
     if not year:
-        raise HTTPException(status_code=404, detail="Année scolaire introuvable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Année scolaire introuvable"
+        )
+
+    # Récupération sécurisée du montant de pension si présent dans le schéma
+    tuition_fee = getattr(payload, 'tuition_fee', 0.0)
 
     school_class = SchoolClass(
         name=payload.name,
         school_id=payload.school_id,
-        school_year_id=payload.school_year_id
+        school_year_id=payload.school_year_id,
+        tuition_fee=tuition_fee
     )
     db.add(school_class)
     db.commit()
