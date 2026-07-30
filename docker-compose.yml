@@ -30,7 +30,7 @@ services:
     volumes:
       - ./backend:/code
     environment:
-      - DATABASE_URL=postgresql://admin_scolaire:MonSuperMotDePasseSecurise2026@db:5432/portail_scolaire_dev
+      - DATABASE_URL=postgresql://admin_scolaire:MonSuperMotDePasseSecurise2026@portail_scolaire_db:5432/portail_scolaire_dev
       - SECRET_KEY=SUPER_SECRET_KEY_POUR_NOTRE_MVP_PORTAIL_SCOLAIRE_2026
     depends_on:
       - db
