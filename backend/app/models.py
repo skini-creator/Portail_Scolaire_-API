@@ -83,13 +83,14 @@ class SchoolClass(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True)
     role = Column(Enum(UserRole), default=UserRole.PARENT, nullable=False) # "ADMIN", "PARENT", "COMPTABLE"
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False) 
     phone = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)  # Permet de désactiver un utilisateur
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relations
@@ -101,10 +102,11 @@ class Student(Base):
     __tablename__ = "students"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     matricule = Column(String, unique=True, index=True, nullable=False)
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)  # Permet de désactiver un élève
     
     # Clés étrangères vers la structure
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)
@@ -122,6 +124,10 @@ class Student(Base):
     
     class_rel = relationship("SchoolClass", back_populates="students")
     school_year_rel = relationship("SchoolYear", back_populates="students")
+
+    @property
+    def parent_id(self):
+        return self.user_id
 
 
 # ==========================================
@@ -156,7 +162,7 @@ class Payment(Base):
     # Workflow de validation par le Comptable
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
     validated_at = Column(DateTime, nullable=True)
-    validated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    validated_by_id = Column(String, ForeignKey("users.id"), nullable=True)
     rejection_reason = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

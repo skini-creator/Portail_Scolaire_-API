@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -40,7 +40,7 @@ class Token(BaseModel):
 
 class UserProfile(BaseModel):
     """Schéma simple pour l'utilisateur connecté."""
-    id: int
+    id: Union[int, str]
     email: EmailStr
     first_name: str
     last_name: str
@@ -59,16 +59,97 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.PARENT
     phone: Optional[str] = None
 
+    @field_validator('role', mode='before')
+    @classmethod
+    def normalize_role(cls, v):
+        if isinstance(v, str):
+            val_upper = v.upper()
+            if val_upper == 'ACCOUNTANT':
+                return UserRole.COMPTABLE
+            return val_upper
+        return v
+
 
 class UserResponse(BaseModel):
     """Schéma de retour d'un utilisateur créé."""
-    id: int
+    id: Union[int, str]
     email: EmailStr
     first_name: str
     last_name: str
     role: UserRole
     phone: Optional[str] = None
-    created_at: datetime
+    is_active: Optional[bool] = True
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- SCHÉMAS SPÉCIFIQUES PARENT ---
+class ParentCreate(BaseModel):
+    """Schéma de création d'un Parent par l'Admin."""
+    first_name: str
+    last_name: str
+    email: EmailStr
+    password: str
+    phone: Optional[str] = None
+    role: Optional[str] = "PARENT"
+
+
+class ParentUpdate(BaseModel):
+    """Schéma de modification d'un Parent par l'Admin."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+
+
+class ParentResponse(BaseModel):
+    """Schéma de retour d'un Parent."""
+    id: Union[int, str]
+    first_name: str
+    last_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    role: UserRole = UserRole.PARENT
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- SCHÉMAS SPÉCIFIQUES COMPTABLE ---
+class AccountantCreate(BaseModel):
+    """Schéma de création d'un Comptable par l'Admin."""
+    first_name: str
+    last_name: str
+    email: EmailStr
+    password: str
+    phone: Optional[str] = None
+    role: Optional[str] = "COMPTABLE"
+
+
+class AccountantUpdate(BaseModel):
+    """Schéma de modification d'un Comptable par l'Admin."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AccountantResponse(BaseModel):
+    """Schéma de retour d'un Comptable."""
+    id: Union[int, str]
+    first_name: str
+    last_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    role: UserRole = UserRole.COMPTABLE
+    is_active: bool = True
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -145,9 +226,16 @@ class StudentCreate(BaseModel):
     """Schéma pour l'inscription d'un élève par l'Admin."""
     first_name: str
     last_name: str
-    parent_id: int
-    class_id: int
+    parent_id: Union[int, str]
+    class_id: Optional[int] = None
     school_year_id: Optional[int] = None
+
+
+class StudentUpdate(BaseModel):
+    """Schéma de modification d'un élève."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    class_id: Optional[int] = None
 
 
 class StudentResponse(BaseModel):
@@ -156,9 +244,11 @@ class StudentResponse(BaseModel):
     first_name: str
     last_name: str
     matricule: str
-    user_id: int
+    user_id: Union[int, str]
+    parent_id: Optional[Union[int, str]] = None
     class_id: Optional[int] = None
     class_name: Optional[str] = None
+    is_active: Optional[bool] = True
 
     class Config:
         from_attributes = True
@@ -172,7 +262,7 @@ class PaymentCreate(BaseModel):
     """Schéma pour déclarer un paiement (créé avec le statut PENDING par défaut)."""
     student_id: int
     amount: float
-    reference: Optional[str] = None  # Référence Mobile Money saisie par le parent (ex: R123456)
+    reference: Optional[str] = None  # Référence Mobile Money (ex: R123456)
     operator: Optional[str] = "AIRTEL_MONEY"
 
 

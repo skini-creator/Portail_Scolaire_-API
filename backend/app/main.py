@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Ajoute le dossier racine "backend" au chemin de recherche des modules Python
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -7,11 +13,11 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 # Importations des routeurs (Sprint 3)
-from app.routers import school, students, payments
+from app.routers import school, students, payments, users, admin
 
 # Importations absolues
 from app.database import engine, get_db, Base
-from app.models import User, Student, StudentAccount
+from app.models import User, Student, StudentAccount, UserRole
 from app.schemas import LoginRequest, Token, UserCreate, UserResponse
 
 # Security & RBAC (Sprint 2)
@@ -25,7 +31,7 @@ from app.security import (
 )
 
 
-def wait_for_db(engine, max_retries: int = 10, delay_seconds: int = 3):
+def wait_for_db(engine, max_retries: int = 3, delay_seconds: int = 1):
     """Attends que PostgreSQL soit prêt avant de démarrer l'application."""
     last_exception = None
     for attempt in range(1, max_retries + 1):
@@ -41,95 +47,78 @@ def wait_for_db(engine, max_retries: int = 10, delay_seconds: int = 3):
                 f"Réessayer dans {delay_seconds}s..."
             )
             time.sleep(delay_seconds)
-    raise RuntimeError(
-        f"Impossible de se connecter à PostgreSQL après {max_retries} tentatives."
-    ) from last_exception
+    print(f"Avertissement DB : {last_exception}")
 
 
 # --- GESTIONNAIRE DE LIFESPAN (INITIALISATION DE LA BDD AU DÉMARRAGE) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """S'exécute automatiquement au lancement de l'API pour injecter les données de démo."""
-
-    print("Attente de la disponibilité de PostgreSQL... ⏳")
-    wait_for_db(engine)
-
-    print("Vérification et création des tables de la base de données... 🛠️")
-    Base.metadata.create_all(bind=engine)
-
-    db = next(get_db())
     try:
-        # 1. Injection de l'ADMIN de démo
-        test_admin = db.query(User).filter(User.email == "admin@demo.com").first()
-        if not test_admin:
-            print("Injection de l'administrateur de démo... 👑")
-            admin = User(
-                role="ADMIN",
-                first_name="Algrin",
-                last_name="Mondjo",
-                email="admin@demo.com",
-                password=hash_password("AdminPassword2026"),
-                phone="+241 66 00 00 00"
-            )
-            db.add(admin)
-            db.commit()
-            print("Administrateur de démo créé ! 🎉")
+        print("Vérification rapide de la base de données... 🛠️")
+        wait_for_db(engine)
+        Base.metadata.create_all(bind=engine)
 
-        # 2. Injection du PARENT de démo
-        test_parent = db.query(User).filter(User.email == "parent@demo.com").first()
-        if not test_parent:
-            print("Injection du parent de démo... 👨‍👩‍👦")
-            parent = User(
-                role="PARENT",
-                first_name="Jean",
-                last_name="Mondjo",
-                email="parent@demo.com",
-                password=hash_password("DemoPassword2026"),
-                phone="+241 74 83 74 43"
-            )
-            db.add(parent)
-            db.commit()
-            db.refresh(parent)
-
-            # Création de l'élève rattaché au parent
-            student = Student(
-                user_id=parent.id,
-                matricule="MAT-98765",
-                first_name="Ariel",
-                last_name="Mondjo",
-                class_name="6ème A",
-                school_year="2025-2026"
-            )
-            db.add(student)
-            db.commit()
-            db.refresh(student)
-
-            # Compte financier de scolarité associé
-            account = StudentAccount(
-                student_id=student.id,
-                total_amount=300000.0,
-                paid_amount=0.0,
-                remaining_amount=300000.0,
-                status="NON_SOLDE"
-            )
-            db.add(account)
-            db.commit()
-            print("Données de démo parent/élève injectées avec succès ! 🎉")
-        else:
-            if pwd_context.identify(test_parent.password) is None:
-                print("Mot de passe de démo stocké en clair; migration vers un hash sécurisé... 🔒")
-                test_parent.password = hash_password("DemoPassword2026")
-                db.add(test_parent)
+        db = next(get_db())
+        try:
+            # 1. Injection de l'ADMIN de démo
+            test_admin = db.query(User).filter(User.email == "admin@demo.com").first()
+            if not test_admin:
+                print("Injection de l'administrateur de démo... 👑")
+                admin = User(
+                    id="1",
+                    role=UserRole.ADMIN,
+                    first_name="Algrin",
+                    last_name="Mondjo",
+                    email="admin@demo.com",
+                    password=hash_password("AdminPassword2026"),
+                    phone="+241 66 00 00 00"
+                )
+                db.add(admin)
                 db.commit()
-                print("Mot de passe de démo migré avec succès.")
-            else:
-                print("Données de démo déjà présentes. Initialisation ignorée. ✅")
-                
+
+            # 2. Injection du PARENT de démo
+            test_parent = db.query(User).filter(User.email == "parent@demo.com").first()
+            if not test_parent:
+                print("Injection du parent de démo... 👨‍👩‍👦")
+                parent = User(
+                    id="2",
+                    role=UserRole.PARENT,
+                    first_name="Jean",
+                    last_name="Mondjo",
+                    email="parent@demo.com",
+                    password=hash_password("DemoPassword2026"),
+                    phone="+241 74 83 74 43"
+                )
+                db.add(parent)
+                db.commit()
+                db.refresh(parent)
+
+                student = Student(
+                    user_id=parent.id,
+                    matricule="MAT-98765",
+                    first_name="Ariel",
+                    last_name="Mondjo",
+                    class_name="6ème A",
+                    school_year="2025-2026"
+                )
+                db.add(student)
+                db.commit()
+                db.refresh(student)
+
+                account = StudentAccount(
+                    student_id=student.id,
+                    total_amount=300000.0,
+                    paid_amount=0.0,
+                    remaining_amount=300000.0,
+                    status="NON_SOLDE"
+                )
+                db.add(account)
+                db.commit()
+        finally:
+            db.close()
     except Exception as e:
-        print(f"Erreur lors de l'injection : {e}")
-        raise
-    finally:
-        db.close()
+        print(f"Erreur durant l'initialisation lifespan: {e}")
 
     yield
 
@@ -138,36 +127,40 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Portail Scolaire API",
     version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan
 )
 
 
-# --- CONFIGURATION DU CORS CORRIGÉE ---
+# --- CONFIGURATION DU CORS ---
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_env:
+    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+else:
+    allowed_origins = ["*"]  # Permet la connexion depuis React Native / Mobile sans blocage CORS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:19006",
-        "http://localhost:8081",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "*"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- INCLUSION DES ROUTEURS ---
+app.include_router(admin.router)
 app.include_router(school.router)
 app.include_router(students.router)
 app.include_router(payments.router)
+app.include_router(users.router)
 
 
 # --- ROUTES ---
 
 @app.get("/")
+@app.get("/api")
 def read_root():
     return {"message": "Bienvenue sur l'API du Portail Scolaire !"}
 
@@ -184,14 +177,17 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Conversion explicite du rôle Enum en chaîne pour le token JWT
+    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+
     access_token = create_access_token(
-        data={"sub": user.email, "role": user.role}
+        data={"sub": user.email, "role": role_str}
     )
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "role": user.role,
+        "role": role_str,
         "full_name": f"{user.first_name} {user.last_name}"
     }
 
@@ -202,7 +198,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     "/api/users/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(RoleChecker(["ADMIN"]))]
+    dependencies=[Depends(RoleChecker([UserRole.ADMIN]))]
 )
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     """Permet à l'ADMIN de créer un nouvel utilisateur (Parent, Comptable, Admin)."""
@@ -231,17 +227,18 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
 @app.get("/api/users/me")
 def read_users_me(current_user: User = Depends(get_current_user)):
     """Retourne les informations de l'utilisateur actuellement connecté."""
+    role_str = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     return {
         "id": current_user.id,
         "email": current_user.email,
         "first_name": current_user.first_name,
         "last_name": current_user.last_name,
-        "role": current_user.role,
+        "role": role_str,
         "phone": current_user.phone
     }
 
 
-@app.get("/api/admin/dashboard", dependencies=[Depends(RoleChecker(["ADMIN"]))])
+@app.get("/api/admin/dashboard", dependencies=[Depends(RoleChecker([UserRole.ADMIN]))])
 def read_admin_dashboard():
     """Panneau d'administration d'exemple pour valider le fonctionnement du RBAC."""
     return {"message": "Bienvenue sur le panneau d'administration secret ! 🔑"}
