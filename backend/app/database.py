@@ -1,37 +1,42 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 # Build the DB URL from environment variables to avoid hard-coded secrets.
-# Priority: DATABASE_URL env var (for flexibility), otherwise construct from components.
 DB_USER = os.getenv("DB_USER", "admin_scolaire")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST", "db")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "portail_scolaire_dev")
-DB_SSLMODE = os.getenv("DB_SSLMODE", "disable")
+# Par défaut pour les BDD cloud (Supabase/Neon/Render), sslmode='require' est nécessaire
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
 
-# If a full DATABASE_URL is supplied, use it. Otherwise require DB_PASSWORD to be set
-# (to avoid embedding secrets in source code). This forces callers to provide password
-# via environment or secret management.
 DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    if DB_PASSWORD:
-        DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    else:
-        # Fallback pour éviter l'échec d'importation du module lors de l'initialisation Vercel
-        DATABASE_URL = "sqlite:///:memory:"
+if DATABASE_URL:
+    # Compatibilité SQLAlchemy 2.0 (convertit postgres:// en postgresql://)
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+elif DB_PASSWORD:
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+else:
+    # Fallback SQLite persistant sur disque pour dev/test sans BDD distante
+    DATABASE_URL = "sqlite:///./app_dev.db"
 
 connect_args = {}
-if DATABASE_URL.startswith("postgresql") and DB_SSLMODE:
-    connect_args["sslmode"] = DB_SSLMODE
+if DATABASE_URL.startswith("postgresql"):
+    if "sslmode" not in DATABASE_URL and DB_SSLMODE:
+        connect_args["sslmode"] = DB_SSLMODE
+elif DATABASE_URL.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
 
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=NullPool,
-    connect_args=connect_args,
-)
+engine_kwargs = {"connect_args": connect_args}
+if DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["poolclass"] = StaticPool
+else:
+    engine_kwargs["poolclass"] = NullPool
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

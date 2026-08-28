@@ -38,19 +38,19 @@ from app.security import (
 )
 
 
-def wait_for_db(engine, max_retries: int = 3, delay_seconds: int = 1):
-    """Attends que PostgreSQL soit prêt avant de démarrer l'application."""
+def wait_for_db(engine, max_retries: int = 2, delay_seconds: int = 1):
+    """Attends que la base de données soit prête avant de démarrer l'application."""
     last_exception = None
     for attempt in range(1, max_retries + 1):
         try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
-            print("Connexion à PostgreSQL réussie.")
+            print("Connexion à la base de données réussie.")
             return
-        except OperationalError as exc:
+        except Exception as exc:
             last_exception = exc
             print(
-                f"PostgreSQL indisponible (tentative {attempt}/{max_retries}). "
+                f"Base de données indisponible (tentative {attempt}/{max_retries}). "
                 f"Réessayer dans {delay_seconds}s..."
             )
             time.sleep(delay_seconds)
