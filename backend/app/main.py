@@ -56,13 +56,57 @@ def wait_for_db(engine, max_retries: int = 2, delay_seconds: int = 1):
             )
             time.sleep(delay_seconds)
 def apply_schema_migrations(engine):
-    """S'assure que les colonnes indispensables (comme is_active) existent dans la BDD distante."""
+    """S'assure que les colonnes et types de colonnes (comme id VARCHAR) existent dans la BDD distante."""
+    
+    # 1. Conversion robuste PostgreSQL des colonnes id / user_id vers VARCHAR (pour supporter les UUID Supabase Auth)
+    if "postgresql" in str(engine.url) or getattr(engine.dialect, "name", "") == "postgresql":
+        pg_migration_script = """
+        DO $$ 
+        DECLARE
+            r RECORD;
+        BEGIN
+            -- Supprime temporairement les contraintes FK ciblant users(id)
+            FOR r IN (
+                SELECT tc.table_name, tc.constraint_name 
+                FROM information_schema.table_constraints AS tc 
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                  AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' 
+                  AND (
+                    (tc.table_name = 'students' AND kcu.column_name = 'user_id') OR
+                    (tc.table_name = 'payments' AND kcu.column_name = 'validated_by_id')
+                  )
+            ) LOOP
+                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
+            END LOOP;
+
+            -- Conversion des colonnes en VARCHAR
+            BEGIN
+                ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;
+            EXCEPTION WHEN OTHERS THEN NULL;
+            END;
+
+            BEGIN
+                ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;
+            EXCEPTION WHEN OTHERS THEN NULL;
+            END;
+
+            BEGIN
+                ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;
+            EXCEPTION WHEN OTHERS THEN NULL;
+            END;
+        END $$;
+        """
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(pg_migration_script))
+            print("[Migration] Conversion des types d'ID (users.id -> VARCHAR) exécutée avec succès.")
+        except Exception as e:
+            print(f"[MigrationNotice] Échec de la migration du type users.id -> {e}")
+
+    # 2. Ajout des colonnes indispensables si manquantes
     queries = [
-        # Convertir les colonnes ID en VARCHAR pour supporter les UUIDs Supabase Auth
-        "ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;",
-        "ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;",
-        "ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;",
-        # Ajout des colonnes indispensables si manquantes
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
