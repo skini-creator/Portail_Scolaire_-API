@@ -65,6 +65,17 @@ def apply_schema_migrations(engine):
         DECLARE
             r RECORD;
         BEGIN
+            -- Renommer parent_id -> user_id dans la table students si nécessaire (compatibilité schéma Supabase)
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'students' AND column_name = 'parent_id'
+            ) AND NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'students' AND column_name = 'user_id'
+            ) THEN
+                ALTER TABLE students RENAME COLUMN parent_id TO user_id;
+            END IF;
+
             -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users
             FOR r IN (
                 SELECT tc.table_name, tc.constraint_name
@@ -77,7 +88,7 @@ def apply_schema_migrations(engine):
                 EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
             END LOOP;
 
-            -- Supprime TOUTES les contraintes FK sur students(user_id) et payments(validated_by_id)
+            -- Supprime TOUTES les contraintes FK sur students(user_id, parent_id) et payments(validated_by_id)
             FOR r IN (
                 SELECT tc.table_name, tc.constraint_name 
                 FROM information_schema.table_constraints AS tc 
@@ -85,7 +96,7 @@ def apply_schema_migrations(engine):
                   ON tc.constraint_name = kcu.constraint_name
                   AND tc.table_schema = kcu.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' 
-                  AND kcu.column_name IN ('user_id', 'validated_by_id')
+                  AND kcu.column_name IN ('user_id', 'parent_id', 'validated_by_id')
             ) LOOP
                 EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
             END LOOP;
@@ -100,12 +111,13 @@ def apply_schema_migrations(engine):
         try:
             with engine.begin() as conn:
                 conn.execute(text(pg_migration_script))
-            print("[Migration] Conversion des types d'ID (users.id -> VARCHAR) exécutée avec succès.")
+            print("[Migration] Renommage et conversion des types d'ID (students.user_id, users.id -> VARCHAR) exécutés avec succès.")
         except Exception as e:
             print(f"[MigrationNotice] Échec de la migration du type users.id -> {e}")
 
     # 2. Ajout des colonnes indispensables si manquantes
     queries = [
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
