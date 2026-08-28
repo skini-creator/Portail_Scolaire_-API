@@ -55,7 +55,23 @@ def wait_for_db(engine, max_retries: int = 2, delay_seconds: int = 1):
                 f"Réessayer dans {delay_seconds}s..."
             )
             time.sleep(delay_seconds)
-    print(f"Avertissement DB : {last_exception}")
+def apply_schema_migrations(engine):
+    """S'assure que les colonnes indispensables (comme is_active) existent dans la BDD distante."""
+    queries = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS class_name VARCHAR;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year VARCHAR;",
+    ]
+    with engine.connect() as conn:
+        for query in queries:
+            try:
+                conn.execute(text(query))
+                conn.commit()
+            except Exception as e:
+                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                    print(f"[MigrationNotice] {query} -> {e}")
 
 
 # --- GESTIONNAIRE DE LIFESPAN (INITIALISATION DE LA BDD AU DÉMARRAGE) ---
@@ -65,6 +81,7 @@ async def lifespan(app: FastAPI):
     try:
         print("Vérification rapide de la base de données... 🛠️")
         wait_for_db(engine)
+        apply_schema_migrations(engine)
         Base.metadata.create_all(bind=engine)
 
         db = next(get_db())
