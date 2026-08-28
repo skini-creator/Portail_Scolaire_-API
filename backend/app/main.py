@@ -58,6 +58,11 @@ def wait_for_db(engine, max_retries: int = 2, delay_seconds: int = 1):
 def apply_schema_migrations(engine):
     """S'assure que les colonnes indispensables (comme is_active) existent dans la BDD distante."""
     queries = [
+        # Convertir les colonnes ID en VARCHAR pour supporter les UUIDs Supabase Auth
+        "ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;",
+        "ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;",
+        "ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;",
+        # Ajout des colonnes indispensables si manquantes
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
