@@ -17,14 +17,14 @@ DB_SSLMODE = os.getenv("DB_SSLMODE", "disable")
 # via environment or secret management.
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    if not DB_PASSWORD:
-        raise RuntimeError(
-            "DB_PASSWORD environment variable is required when DATABASE_URL is not provided."
-        )
-    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    if DB_PASSWORD:
+        DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    else:
+        # Fallback pour éviter l'échec d'importation du module lors de l'initialisation Vercel
+        DATABASE_URL = "sqlite:///:memory:"
 
 connect_args = {}
-if DB_SSLMODE:
+if DATABASE_URL.startswith("postgresql") and DB_SSLMODE:
     connect_args["sslmode"] = DB_SSLMODE
 
 engine = create_engine(

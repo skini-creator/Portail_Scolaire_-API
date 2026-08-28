@@ -1,8 +1,15 @@
 import sys
 import os
 
-# Ajoute le dossier racine "backend" au chemin de recherche des modules Python
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Configuration de sys.path pour l'exécution Serverless Vercel
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))   # .../backend/app
+BACKEND_DIR = os.path.dirname(CURRENT_DIR)                 # .../backend
+ROOT_DIR = os.path.dirname(BACKEND_DIR)                   # ... (racine du projet)
+
+for path in [BACKEND_DIR, ROOT_DIR, CURRENT_DIR]:
+    if path and path not in sys.path:
+        sys.path.insert(0, path)
+
 
 import time
 from contextlib import asynccontextmanager
