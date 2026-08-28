@@ -4,6 +4,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
 
 # Build the DB URL from environment variables to avoid hard-coded secrets.
+import tempfile
+
 DB_USER = os.getenv("DB_USER", "admin_scolaire")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST", "db")
@@ -17,11 +19,12 @@ if DATABASE_URL:
     # Compatibilité SQLAlchemy 2.0 (convertit postgres:// en postgresql://)
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-elif DB_PASSWORD:
+elif DB_PASSWORD and DB_HOST and DB_HOST != "db":
     DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 else:
-    # Fallback SQLite persistant sur disque pour dev/test sans BDD distante
-    DATABASE_URL = "sqlite:///./app_dev.db"
+    # Fallback SQLite dans le dossier temporaire /tmp (seul dossier inscriptible sur Vercel serverless)
+    tmp_db = os.path.join(tempfile.gettempdir(), "app_dev.db")
+    DATABASE_URL = f"sqlite:///{tmp_db}"
 
 connect_args = {}
 if DATABASE_URL.startswith("postgresql"):

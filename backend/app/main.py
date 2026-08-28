@@ -15,8 +15,9 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Importations des routeurs (Sprint 3)
@@ -139,6 +140,18 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     lifespan=lifespan
 )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request, exc: SQLAlchemyError):
+    print(f"[DatabaseError] Erreur BDD sur {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "Service de base de données temporairement indisponible. Veuillez vérifier la connexion ou la variable DATABASE_URL.",
+            "error": str(exc)
+        }
+    )
 
 
 # --- CONFIGURATION DU CORS ---
