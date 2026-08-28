@@ -65,15 +65,20 @@ def apply_schema_migrations(engine):
         DECLARE
             r RECORD;
         BEGIN
-            -- Renommer parent_id -> user_id dans la table students si nécessaire (compatibilité schéma Supabase)
+            -- Renommer ou lever la contrainte NOT NULL sur parent_id dans la table students (compatibilité schéma Supabase)
             IF EXISTS (
                 SELECT 1 FROM information_schema.columns 
                 WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()
-            ) AND NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'students' AND column_name = 'user_id' AND table_schema = current_schema()
             ) THEN
-                ALTER TABLE students RENAME COLUMN parent_id TO user_id;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'students' AND column_name = 'user_id' AND table_schema = current_schema()
+                ) THEN
+                    ALTER TABLE students RENAME COLUMN parent_id TO user_id;
+                ELSE
+                    UPDATE students SET user_id = parent_id::VARCHAR WHERE user_id IS NULL AND parent_id IS NOT NULL;
+                    ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL;
+                END IF;
             END IF;
 
             -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users (schéma courant uniquement)
@@ -121,6 +126,7 @@ def apply_schema_migrations(engine):
     # 2. Ajout des colonnes indispensables si manquantes
     queries = [
         "ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;",
+        "DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()) THEN ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL; END IF; END $$;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
