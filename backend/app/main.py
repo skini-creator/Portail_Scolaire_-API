@@ -25,7 +25,7 @@ from app.routers import school, students, payments, users, admin
 
 # Importations absolues
 from app.database import engine, get_db, Base
-from app.models import User, Student, StudentAccount, UserRole
+from app.models import User, Student, StudentAccount, UserRole, School, SchoolYear, SchoolClass
 from app.schemas import LoginRequest, Token, UserCreate, UserResponse
 
 # Security & RBAC (Sprint 2)
@@ -217,6 +217,43 @@ async def lifespan(app: FastAPI):
                 )
                 db.add(account)
                 db.commit()
+
+            # 3. Injection des classes par défaut (6ème à la Terminale)
+            school_obj = db.query(School).first()
+            if not school_obj:
+                school_obj = School(
+                    name="Lycée Excellence",
+                    address="Libreville",
+                    phone="+241 11 00 00 00",
+                    email="contact@lycee.ga"
+                )
+                db.add(school_obj)
+                db.commit()
+                db.refresh(school_obj)
+
+            sy_obj = db.query(SchoolYear).filter(SchoolYear.label == "2025-2026").first()
+            if not sy_obj:
+                sy_obj = SchoolYear(label="2025-2026", is_active=True)
+                db.add(sy_obj)
+                db.commit()
+                db.refresh(sy_obj)
+
+            default_classes = [
+                "6ème A", "6ème B", "5ème A", "5ème B", 
+                "4ème A", "4ème B", "3ème A", "3ème B", 
+                "2nde C", "2nde LE", "1ère D", "1ère A1", 
+                "Terminale C", "Terminale D", "Terminale A1"
+            ]
+            for cname in default_classes:
+                c_exists = db.query(SchoolClass).filter(SchoolClass.name == cname, SchoolClass.school_id == school_obj.id).first()
+                if not c_exists:
+                    new_class = SchoolClass(
+                        name=cname,
+                        school_id=school_obj.id,
+                        school_year_id=sy_obj.id
+                    )
+                    db.add(new_class)
+            db.commit()
         finally:
             db.close()
     except Exception as e:

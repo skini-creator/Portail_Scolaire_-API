@@ -454,9 +454,9 @@ def create_student_admin(
     # 5. Création automatique du compte scolarité associé
     account = StudentAccount(
         student_id=student.id,
-        total_amount=0.0,
+        total_amount=300000.0,
         paid_amount=0.0,
-        remaining_amount=0.0,
+        remaining_amount=300000.0,
         status="NON_SOLDE"
     )
     db.add(account)
