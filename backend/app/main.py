@@ -68,37 +68,40 @@ def apply_schema_migrations(engine):
             -- Renommer parent_id -> user_id dans la table students si nécessaire (compatibilité schéma Supabase)
             IF EXISTS (
                 SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'students' AND column_name = 'parent_id'
+                WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()
             ) AND NOT EXISTS (
                 SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'students' AND column_name = 'user_id'
+                WHERE table_name = 'students' AND column_name = 'user_id' AND table_schema = current_schema()
             ) THEN
                 ALTER TABLE students RENAME COLUMN parent_id TO user_id;
             END IF;
 
-            -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users
+            -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users (schéma courant uniquement)
             FOR r IN (
-                SELECT tc.table_name, tc.constraint_name
+                SELECT tc.table_schema, tc.table_name, tc.constraint_name
                 FROM information_schema.table_constraints AS tc 
                 JOIN information_schema.constraint_column_usage AS ccu
                   ON ccu.constraint_name = tc.constraint_name
                   AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'users'
+                WHERE tc.constraint_type = 'FOREIGN KEY' 
+                  AND ccu.table_name = 'users'
+                  AND tc.table_schema = current_schema()
             ) LOOP
-                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
+                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
             END LOOP;
 
-            -- Supprime TOUTES les contraintes FK sur students(user_id, parent_id) et payments(validated_by_id)
+            -- Supprime TOUTES les contraintes FK sur students(user_id, parent_id) et payments(validated_by_id) (schéma courant uniquement)
             FOR r IN (
-                SELECT tc.table_name, tc.constraint_name 
+                SELECT tc.table_schema, tc.table_name, tc.constraint_name 
                 FROM information_schema.table_constraints AS tc 
                 JOIN information_schema.key_column_usage AS kcu
                   ON tc.constraint_name = kcu.constraint_name
                   AND tc.table_schema = kcu.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' 
                   AND kcu.column_name IN ('user_id', 'parent_id', 'validated_by_id')
+                  AND tc.table_schema = current_schema()
             ) LOOP
-                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
+                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
             END LOOP;
 
             -- Conversion des colonnes en VARCHAR
