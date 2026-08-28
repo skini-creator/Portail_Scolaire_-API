@@ -65,7 +65,19 @@ def apply_schema_migrations(engine):
         DECLARE
             r RECORD;
         BEGIN
-            -- Supprime temporairement les contraintes FK ciblant users(id)
+            -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users
+            FOR r IN (
+                SELECT tc.table_name, tc.constraint_name
+                FROM information_schema.table_constraints AS tc 
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                  AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'users'
+            ) LOOP
+                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
+            END LOOP;
+
+            -- Supprime TOUTES les contraintes FK sur students(user_id) et payments(validated_by_id)
             FOR r IN (
                 SELECT tc.table_name, tc.constraint_name 
                 FROM information_schema.table_constraints AS tc 
@@ -73,29 +85,16 @@ def apply_schema_migrations(engine):
                   ON tc.constraint_name = kcu.constraint_name
                   AND tc.table_schema = kcu.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' 
-                  AND (
-                    (tc.table_name = 'students' AND kcu.column_name = 'user_id') OR
-                    (tc.table_name = 'payments' AND kcu.column_name = 'validated_by_id')
-                  )
+                  AND kcu.column_name IN ('user_id', 'validated_by_id')
             ) LOOP
                 EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
             END LOOP;
 
             -- Conversion des colonnes en VARCHAR
-            BEGIN
-                ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
+            ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;
+            ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;
+            ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;
 
-            BEGIN
-                ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
-
-            BEGIN
-                ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;
-            EXCEPTION WHEN OTHERS THEN NULL;
-            END;
         END $$;
         """
         try:
