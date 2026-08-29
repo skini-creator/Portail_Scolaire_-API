@@ -233,10 +233,23 @@ def get_student_account(
     """Consulter le solde et le statut du compte financier d'un élève."""
     account = db.query(StudentAccount).filter(StudentAccount.student_id == student_id).first()
     if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Compte financier introuvable."
+        student = db.query(Student).filter(Student.id == student_id).first()
+        if not student:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Élève introuvable."
+            )
+        account = StudentAccount(
+            student_id=student_id,
+            total_amount=300000.0,
+            paid_amount=0.0,
+            remaining_amount=300000.0,
+            status="NON_SOLDE"
         )
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+
     return account
 
 
@@ -249,10 +262,7 @@ def get_payment_history(
     """Consulter l'historique complet des versements effectués pour un élève."""
     account = db.query(StudentAccount).filter(StudentAccount.student_id == student_id).first()
     if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Compte financier introuvable."
-        )
+        return []
     
     payments = db.query(Payment).filter(Payment.student_account_id == account.id).order_by(Payment.payment_date.desc()).all()
     return payments

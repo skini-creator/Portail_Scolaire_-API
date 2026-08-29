@@ -284,7 +284,7 @@ class PaymentResponse(BaseModel):
 
     # Champs de validation par le Comptable
     validated_at: Optional[datetime] = None
-    validated_by_id: Optional[int] = None
+    validated_by_id: Optional[Union[str, int]] = None
     rejection_reason: Optional[str] = None
 
     # Métadonnées jointes pour le Dashboard Admin / Comptable / Parent
