@@ -1,12 +1,13 @@
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 
 from app.database import get_db
 from app.models import Student, StudentAccount, User, SchoolClass, UserRole
-from app.schemas import StudentCreate, StudentResponse
+from app.schemas import StudentCreate, StudentResponse, StudentUpdate
 from app.security import get_current_user, RoleChecker
 
 # Schémas supplémentaires pour les opérations
@@ -15,11 +16,26 @@ class TuitionUpdate(BaseModel):
     total_amount: float
 
 
-class StudentUpdate(BaseModel):
-    """Schéma pour modifier un élève."""
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    class_id: Optional[int] = None
+def resolve_class_info(db: Session, class_id=None, class_name=None, classe=None, classroom=None):
+    c_name_input = class_name or classe or classroom
+    
+    if class_id is not None:
+        if isinstance(class_id, int) or (isinstance(class_id, str) and class_id.isdigit()):
+            cid = int(class_id)
+            school_cls = db.query(SchoolClass).filter(SchoolClass.id == cid).first()
+            if school_cls:
+                return school_cls.id, school_cls.name
+        elif isinstance(class_id, str) and class_id.strip() and not c_name_input:
+            c_name_input = class_id.strip()
+
+    if c_name_input and str(c_name_input).strip():
+        clean_name = str(c_name_input).strip()
+        school_cls = db.query(SchoolClass).filter(func.lower(SchoolClass.name) == clean_name.lower()).first()
+        if school_cls:
+            return school_cls.id, school_cls.name
+        return None, clean_name
+
+    return None, None
 
 
 router = APIRouter(
@@ -47,15 +63,14 @@ def create_student(
             detail="Parent introuvable ou l'utilisateur spécifié n'a pas le rôle PARENT"
         )
 
-    # 2. Vérification de la classe (optionnel)
-    classroom = None
-    if payload.class_id:
-        classroom = db.query(SchoolClass).filter(SchoolClass.id == payload.class_id).first()
-        if not classroom:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
-                detail="Classe introuvable"
-            )
+    # 2. Résolution résiliente de la classe
+    target_class_id, target_class_name = resolve_class_info(
+        db,
+        class_id=payload.class_id,
+        class_name=payload.class_name,
+        classe=payload.classe,
+        classroom=payload.classroom
+    )
 
     # 3. Génération automatique du matricule unique
     matricule = f"MAT-2026-{uuid.uuid4().hex[:4].upper()}"
@@ -66,8 +81,8 @@ def create_student(
         last_name=payload.last_name,
         matricule=matricule,
         user_id=str(payload.parent_id),
-        class_id=payload.class_id,
-        class_name=classroom.name if classroom else None,
+        class_id=target_class_id,
+        class_name=target_class_name,
         is_active=True
     )
     db.add(student)
@@ -197,16 +212,18 @@ def update_student(
             detail="Élève introuvable."
         )
 
-    # Vérification de la classe si modifiée
-    if payload.class_id and payload.class_id != student.class_id:
-        classroom = db.query(SchoolClass).filter(SchoolClass.id == payload.class_id).first()
-        if not classroom:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Classe introuvable."
-            )
-        student.class_id = payload.class_id
-        student.class_name = classroom.name
+    # Resolution resiliente de la classe si fournie
+    if payload.class_id is not None or payload.class_name or payload.classe or payload.classroom:
+        target_class_id, target_class_name = resolve_class_info(
+            db,
+            class_id=payload.class_id,
+            class_name=payload.class_name,
+            classe=payload.classe,
+            classroom=payload.classroom
+        )
+        if target_class_id is not None or target_class_name is not None:
+            student.class_id = target_class_id
+            student.class_name = target_class_name
 
     # Mise à jour des champs
     if payload.first_name:

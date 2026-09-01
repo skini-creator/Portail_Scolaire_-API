@@ -227,7 +227,10 @@ class StudentCreate(BaseModel):
     first_name: str
     last_name: str
     parent_id: Union[int, str]
-    class_id: Optional[int] = None
+    class_id: Optional[Union[int, str]] = None
+    class_name: Optional[str] = None
+    classe: Optional[str] = None
+    classroom: Optional[str] = None
     school_year_id: Optional[int] = None
 
 
@@ -235,7 +238,10 @@ class StudentUpdate(BaseModel):
     """Schéma de modification d'un élève."""
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    class_id: Optional[int] = None
+    class_id: Optional[Union[int, str]] = None
+    class_name: Optional[str] = None
+    classe: Optional[str] = None
+    classroom: Optional[str] = None
 
 
 class StudentResponse(BaseModel):

@@ -141,6 +141,7 @@ def apply_schema_migrations(engine):
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP;",
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_by_id VARCHAR;",
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;",
+        "UPDATE students SET class_name = '6ème A' WHERE (class_name IS NULL OR class_name = '') AND (class_id IS NULL);",
     ]
     for query in queries:
         try:
