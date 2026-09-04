@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, UserRole, Student, StudentAccount, SchoolClass
+from app.models import User, UserRole, Student, StudentAccount, SchoolClass, Payment
 from app.schemas import (
     UserCreate,
     UserResponse,
@@ -204,6 +204,50 @@ def toggle_parent_status_admin(
     return parent
 
 
+@router.delete("/parents/{parent_id}")
+def delete_parent_admin(
+    parent_id: str,
+    db: Session = Depends(get_db),
+    _current_user=Depends(RoleChecker([UserRole.ADMIN]))
+):
+    """
+    Supprime un parent et tous ses enfants associés.
+    """
+    parent = db.query(User).filter(
+        User.id == str(parent_id),
+        User.role == UserRole.PARENT
+    ).first()
+
+    if not parent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parent introuvable."
+        )
+
+    try:
+        children = db.query(Student).filter(Student.user_id == str(parent_id)).all()
+        for child in children:
+            account = db.query(StudentAccount).filter(StudentAccount.student_id == child.id).first()
+            if account:
+                db.query(Payment).filter(Payment.student_account_id == account.id).delete()
+                db.delete(account)
+            db.delete(child)
+
+        db.delete(parent)
+        db.commit()
+        try:
+            delete_supabase_auth_user(str(parent_id))
+        except Exception:
+            pass
+        return {"message": "Parent et ses enfants supprimés avec succès."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la suppression du parent : {str(e)}"
+        )
+
+
 @router.get("/parents/{parent_id}/children-count")
 def get_parent_children_count_admin(
     parent_id: str,
@@ -397,6 +441,42 @@ def toggle_accountant_status_admin(
     db.commit()
     db.refresh(accountant)
     return accountant
+
+
+@router.delete("/accountants/{accountant_id}")
+def delete_accountant_admin(
+    accountant_id: str,
+    db: Session = Depends(get_db),
+    _current_user=Depends(RoleChecker([UserRole.ADMIN]))
+):
+    """
+    Supprime un comptable.
+    """
+    accountant = db.query(User).filter(
+        User.id == str(accountant_id),
+        User.role == UserRole.COMPTABLE
+    ).first()
+
+    if not accountant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comptable introuvable."
+        )
+
+    try:
+        db.delete(accountant)
+        db.commit()
+        try:
+            delete_supabase_auth_user(str(accountant_id))
+        except Exception:
+            pass
+        return {"message": "Comptable supprimé avec succès."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la suppression du comptable : {str(e)}"
+        )
 
 
 # ==========================================
@@ -595,3 +675,36 @@ def toggle_student_status_admin(
     db.commit()
     db.refresh(student)
     return student
+
+
+@router.delete("/students/{student_id}")
+def delete_student_admin(
+    student_id: int,
+    db: Session = Depends(get_db),
+    _current_user=Depends(RoleChecker([UserRole.ADMIN]))
+):
+    """
+    Supprime un élève.
+    """
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Élève introuvable."
+        )
+
+    try:
+        account = db.query(StudentAccount).filter(StudentAccount.student_id == student.id).first()
+        if account:
+            db.query(Payment).filter(Payment.student_account_id == account.id).delete()
+            db.delete(account)
+
+        db.delete(student)
+        db.commit()
+        return {"message": "Élève supprimé avec succès."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la suppression de l'élève : {str(e)}"
+        )

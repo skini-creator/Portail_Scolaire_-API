@@ -6,7 +6,7 @@ from sqlalchemy import func
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import Student, StudentAccount, User, SchoolClass, UserRole
+from app.models import Student, StudentAccount, User, SchoolClass, UserRole, Payment
 from app.schemas import StudentCreate, StudentResponse, StudentUpdate
 from app.security import get_current_user, RoleChecker
 
@@ -261,6 +261,41 @@ def toggle_student_status(
     db.refresh(student)
 
     return student
+
+
+@router.delete("/{student_id}")
+def delete_student(
+    student_id: int,
+    db: Session = Depends(get_db),
+    _current_user = Depends(RoleChecker([UserRole.ADMIN]))
+):
+    """
+    Supprime définitivement un élève ainsi que son compte financier et l'historique de ses paiements.
+    Réservé aux administrateurs.
+    """
+    student = db.query(Student).filter(Student.id == student_id).first()
+
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Élève introuvable."
+        )
+
+    try:
+        account = db.query(StudentAccount).filter(StudentAccount.student_id == student.id).first()
+        if account:
+            db.query(Payment).filter(Payment.student_account_id == account.id).delete()
+            db.delete(account)
+
+        db.delete(student)
+        db.commit()
+        return {"message": "Élève supprimé avec succès."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la suppression de l'élève : {str(e)}"
+        )
 
 
 # ==========================================
