@@ -19,6 +19,15 @@ if DATABASE_URL:
     # Compatibilité SQLAlchemy 2.0 (convertit postgres:// en postgresql://)
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Conversion automatique du port Supabase Pooler de 5432 vers 6543 (Transaction Mode pour Vercel/serverless)
+    if "pooler.supabase.com:5432" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("pooler.supabase.com:5432", "pooler.supabase.com:6543")
+
+    # Force l'activation de sslmode=require pour les connexions Supabase
+    if "supabase.com" in DATABASE_URL and "sslmode=" not in DATABASE_URL:
+        sep = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL += f"{sep}sslmode=require"
 elif DB_PASSWORD and DB_HOST and DB_HOST != "db":
     DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 else:

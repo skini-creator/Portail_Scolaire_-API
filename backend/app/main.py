@@ -321,7 +321,8 @@ def read_root():
 @app.post("/api/auth/login", response_model=Token)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     """Authentifie l'utilisateur et retourne un Token JWT."""
-    user = db.query(User).filter(User.email == payload.email).first()
+    clean_email = payload.email.strip().lower() if payload.email else ""
+    user = db.query(User).filter(func.lower(User.email) == clean_email).first()
 
     if not user or not verify_password(payload.password, user.password):
         raise HTTPException(
