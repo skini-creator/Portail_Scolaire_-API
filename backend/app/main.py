@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -96,110 +96,118 @@ def apply_schema_migrations(engine):
 # --- GESTIONNAIRE DE LIFESPAN (INITIALISATION DE LA BDD AU DÉMARRAGE) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """S'exécute automatiquement au lancement de l'API pour injecter les données de démo."""
+    """S'exécute automatiquement au lancement de l'API. En environnement Serverless, évite la réinitialisation si la BDD existe déjà."""
     try:
-        print("Vérification rapide de la base de données... 🛠️")
-        wait_for_db(engine)
-        Base.metadata.create_all(bind=engine)
-        apply_schema_migrations(engine)
-
-        db = next(get_db())
+        has_users = False
         try:
-            # 1. Injection de l'ADMIN de démo
-            test_admin = db.query(User).filter(User.email == "admin@demo.com").first()
-            if not test_admin:
-                print("Injection de l'administrateur de démo... 👑")
-                admin = User(
-                    id="1",
-                    role=UserRole.ADMIN,
-                    first_name="Algrin",
-                    last_name="Mondjo",
-                    email="admin@demo.com",
-                    password=hash_password("AdminPassword2026"),
-                    phone="+241 66 00 00 00"
-                )
-                db.add(admin)
-                db.commit()
+            with engine.connect() as conn:
+                res = conn.execute(text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users');"))
+                has_users = bool(res.scalar())
+        except Exception as conn_err:
+            print(f"[Lifespan] Test rapide BDD: {conn_err}")
 
-            # 2. Injection du PARENT de démo
-            test_parent = db.query(User).filter(User.email == "parent@demo.com").first()
-            if not test_parent:
-                print("Injection du parent de démo... 👨‍👩‍👦")
-                parent = User(
-                    id="2",
-                    role=UserRole.PARENT,
-                    first_name="Jean",
-                    last_name="Mondjo",
-                    email="parent@demo.com",
-                    password=hash_password("DemoPassword2026"),
-                    phone="+241 74 83 74 43"
-                )
-                db.add(parent)
-                db.commit()
-                db.refresh(parent)
+        if not has_users:
+            print("Initialisation de la base de données... 🛠️")
+            wait_for_db(engine)
+            Base.metadata.create_all(bind=engine)
+            apply_schema_migrations(engine)
 
-                student = Student(
-                    user_id=parent.id,
-                    matricule="MAT-98765",
-                    first_name="Ariel",
-                    last_name="Mondjo",
-                    class_name="6ème A",
-                    school_year="2025-2026"
-                )
-                db.add(student)
-                db.commit()
-                db.refresh(student)
-
-                account = StudentAccount(
-                    student_id=student.id,
-                    total_amount=300000.0,
-                    paid_amount=0.0,
-                    remaining_amount=300000.0,
-                    status="NON_SOLDE"
-                )
-                db.add(account)
-                db.commit()
-
-            # 3. Injection des classes par défaut (6ème à la Terminale)
-            school_obj = db.query(School).first()
-            if not school_obj:
-                school_obj = School(
-                    name="Lycée Excellence",
-                    address="Libreville",
-                    phone="+241 11 00 00 00",
-                    email="contact@lycee.ga"
-                )
-                db.add(school_obj)
-                db.commit()
-                db.refresh(school_obj)
-
-            sy_obj = db.query(SchoolYear).filter(SchoolYear.label == "2025-2026").first()
-            if not sy_obj:
-                sy_obj = SchoolYear(label="2025-2026", is_active=True)
-                db.add(sy_obj)
-                db.commit()
-                db.refresh(sy_obj)
-
-            default_classes = [
-                "6ème A", "6ème B", "5ème A", "5ème B", 
-                "4ème A", "4ème B", "3ème A", "3ème B", 
-                "2nde C", "2nde LE", "1ère D", "1ère A1", 
-                "Terminale C", "Terminale D", "Terminale A1"
-            ]
-            existing_class_names = set(
-                r[0] for r in db.query(SchoolClass.name).filter(SchoolClass.school_id == school_obj.id).all()
-            )
-            for cname in default_classes:
-                if cname not in existing_class_names:
-                    new_class = SchoolClass(
-                        name=cname,
-                        school_id=school_obj.id,
-                        school_year_id=sy_obj.id
+            db = next(get_db())
+            try:
+                # 1. Injection de l'ADMIN de démo
+                test_admin = db.query(User).filter(User.email == "admin@demo.com").first()
+                if not test_admin:
+                    print("Injection de l'administrateur de démo... 👑")
+                    admin = User(
+                        id="1",
+                        role=UserRole.ADMIN,
+                        first_name="Algrin",
+                        last_name="Mondjo",
+                        email="admin@demo.com",
+                        password=hash_password("AdminPassword2026"),
+                        phone="+241 66 00 00 00"
                     )
-                    db.add(new_class)
-            db.commit()
-        finally:
-            db.close()
+                    db.add(admin)
+                    db.commit()
+
+                # 2. Injection du PARENT de démo
+                test_parent = db.query(User).filter(User.email == "parent@demo.com").first()
+                if not test_parent:
+                    print("Injection du parent de démo... 👨‍👩‍👦")
+                    parent = User(
+                        id="2",
+                        role=UserRole.PARENT,
+                        first_name="Jean",
+                        last_name="Mondjo",
+                        email="parent@demo.com",
+                        password=hash_password("DemoPassword2026"),
+                        phone="+241 74 83 74 43"
+                    )
+                    db.add(parent)
+                    db.commit()
+                    db.refresh(parent)
+
+                    student = Student(
+                        user_id=parent.id,
+                        matricule="MAT-98765",
+                        first_name="Ariel",
+                        last_name="Mondjo",
+                        class_name="6ème A",
+                        school_year="2025-2026"
+                    )
+                    db.add(student)
+                    db.commit()
+                    db.refresh(student)
+
+                    account = StudentAccount(
+                        student_id=student.id,
+                        total_amount=300000.0,
+                        paid_amount=0.0,
+                        remaining_amount=300000.0,
+                        status="NON_SOLDE"
+                    )
+                    db.add(account)
+                    db.commit()
+
+                # 3. Injection des classes par défaut (6ème à la Terminale)
+                school_obj = db.query(School).first()
+                if not school_obj:
+                    school_obj = School(
+                        name="Lycée Excellence",
+                        address="Libreville",
+                        phone="+241 11 00 00 00"
+                    )
+                    db.add(school_obj)
+                    db.commit()
+                    db.refresh(school_obj)
+
+                sy_obj = db.query(SchoolYear).filter(SchoolYear.label == "2025-2026").first()
+                if not sy_obj:
+                    sy_obj = SchoolYear(label="2025-2026", is_active=True)
+                    db.add(sy_obj)
+                    db.commit()
+                    db.refresh(sy_obj)
+
+                default_classes = [
+                    "6ème A", "6ème B", "5ème A", "5ème B", 
+                    "4ème A", "4ème B", "3ème A", "3ème B", 
+                    "2nde C", "2nde LE", "1ère D", "1ère A1", 
+                    "Terminale C", "Terminale D", "Terminale A1"
+                ]
+                existing_class_names = set(
+                    r[0] for r in db.query(SchoolClass.name).filter(SchoolClass.school_id == school_obj.id).all()
+                )
+                for cname in default_classes:
+                    if cname not in existing_class_names:
+                        new_class = SchoolClass(
+                            name=cname,
+                            school_id=school_obj.id,
+                            school_year_id=sy_obj.id
+                        )
+                        db.add(new_class)
+                db.commit()
+            finally:
+                db.close()
     except Exception as e:
         print(f"Erreur durant l'initialisation lifespan: {e}")
 
