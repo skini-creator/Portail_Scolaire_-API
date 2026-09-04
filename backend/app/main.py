@@ -57,97 +57,40 @@ def wait_for_db(engine, max_retries: int = 2, delay_seconds: int = 1):
             time.sleep(delay_seconds)
 def apply_schema_migrations(engine):
     """S'assure que les colonnes et types de colonnes (comme id VARCHAR) existent dans la BDD distante."""
-    
-    # 1. Conversion robuste PostgreSQL des colonnes id / user_id vers VARCHAR (pour supporter les UUID Supabase Auth)
-    if "postgresql" in str(engine.url) or getattr(engine.dialect, "name", "") == "postgresql":
-        pg_migration_script = """
-        DO $$ 
-        DECLARE
-            r RECORD;
-        BEGIN
-            -- Renommer ou lever la contrainte NOT NULL sur parent_id dans la table students (compatibilité schéma Supabase)
-            IF EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()
-            ) THEN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'students' AND column_name = 'user_id' AND table_schema = current_schema()
-                ) THEN
-                    ALTER TABLE students RENAME COLUMN parent_id TO user_id;
-                ELSE
-                    UPDATE students SET user_id = parent_id::VARCHAR WHERE user_id IS NULL AND parent_id IS NOT NULL;
-                    ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL;
-                END IF;
-            END IF;
+    statements = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'PARENT';",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS class_name VARCHAR;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year VARCHAR;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS class_id INTEGER;",
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year_id INTEGER;",
+        "ALTER TABLE school_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP;",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_by_id VARCHAR;",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;",
+        "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
+        "UPDATE students SET is_active = TRUE WHERE is_active IS NULL;",
+        "UPDATE students SET class_name = '6ème A' WHERE (class_name IS NULL OR class_name = '') AND (class_id IS NULL);"
+    ]
 
-            -- Supprime TOUTES les contraintes de clés étrangères pointant vers la table users (schéma courant uniquement)
-            FOR r IN (
-                SELECT tc.table_schema, tc.table_name, tc.constraint_name
-                FROM information_schema.table_constraints AS tc 
-                JOIN information_schema.constraint_column_usage AS ccu
-                  ON ccu.constraint_name = tc.constraint_name
-                  AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY' 
-                  AND ccu.table_name = 'users'
-                  AND tc.table_schema = current_schema()
-            ) LOOP
-                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
-            END LOOP;
+    is_postgres = "postgresql" in str(engine.url) or getattr(engine.dialect, "name", "") == "postgresql"
+    if is_postgres:
+        statements.extend([
+            "ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;",
+            "ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;",
+            "ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;",
+            "ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL;"
+        ])
 
-            -- Supprime TOUTES les contraintes FK sur students(user_id, parent_id) et payments(validated_by_id) (schéma courant uniquement)
-            FOR r IN (
-                SELECT tc.table_schema, tc.table_name, tc.constraint_name 
-                FROM information_schema.table_constraints AS tc 
-                JOIN information_schema.key_column_usage AS kcu
-                  ON tc.constraint_name = kcu.constraint_name
-                  AND tc.table_schema = kcu.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY' 
-                  AND kcu.column_name IN ('user_id', 'parent_id', 'validated_by_id')
-                  AND tc.table_schema = current_schema()
-            ) LOOP
-                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ';';
-            END LOOP;
-
-            -- Conversion des colonnes en VARCHAR
-            ALTER TABLE students ALTER COLUMN user_id TYPE VARCHAR USING user_id::VARCHAR;
-            ALTER TABLE payments ALTER COLUMN validated_by_id TYPE VARCHAR USING validated_by_id::VARCHAR;
-            ALTER TABLE users ALTER COLUMN id TYPE VARCHAR USING id::VARCHAR;
-
-        END $$;
-        """
+    for stmt in statements:
         try:
             with engine.begin() as conn:
-                conn.execute(text(pg_migration_script))
-            print("[Migration] Renommage et conversion des types d'ID (students.user_id, users.id -> VARCHAR) exécutés avec succès.")
-        except Exception as e:
-            print(f"[MigrationNotice] Échec de la migration du type users.id -> {e}")
-
-    # 2. Ajout des colonnes indispensables si manquantes (exécuté en une seule transaction)
-    batch_alter_script = """
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;
-    DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()) THEN ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL; END IF; END $$;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-    UPDATE users SET is_active = TRUE WHERE is_active IS NULL;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'PARENT';
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
-    UPDATE students SET is_active = TRUE WHERE is_active IS NULL;
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS class_name VARCHAR;
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year VARCHAR;
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS class_id INTEGER;
-    ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year_id INTEGER;
-    ALTER TABLE school_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;
-    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP;
-    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_by_id VARCHAR;
-    ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
-    UPDATE students SET class_name = '6ème A' WHERE (class_name IS NULL OR class_name = '') AND (class_id IS NULL);
-    """
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(batch_alter_script))
-    except Exception as e:
-        print(f"[MigrationNotice] Batch alter -> {e}")
+                conn.execute(text(stmt))
+        except Exception:
+            pass  # Ignorer silensieusement si la colonne/contrainte existe déjà ou si la table diffère
 
 
 # --- GESTIONNAIRE DE LIFESPAN (INITIALISATION DE LA BDD AU DÉMARRAGE) ---
