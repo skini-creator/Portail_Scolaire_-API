@@ -76,7 +76,18 @@ def record_payment(
         )
 
     try:
-        ref_code = payload.reference if payload.reference else f"PAY-{uuid.uuid4().hex[:8].upper()}"
+        raw_ref = payload.reference.strip() if (payload.reference and payload.reference.strip()) else None
+        if raw_ref:
+            ref_code = raw_ref
+            existing_payment = db.query(Payment).filter(Payment.reference == ref_code).first()
+            if existing_payment:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"La référence de paiement '{ref_code}' a déjà été enregistrée pour un autre versement."
+                )
+        else:
+            ref_code = f"PAY-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
+
         payment_op = getattr(payload, 'operator', 'AIRTEL_MONEY')
 
         payment = Payment(
@@ -95,11 +106,20 @@ def record_payment(
         res_data.student_name = f"{student.first_name} {student.last_name}".strip()
         return res_data
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
+        err_msg = str(e)
+        if "unique" in err_msg.lower() or "ix_payments_reference" in err_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La référence de paiement '{payload.reference}' est déjà enregistrée."
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de l'enregistrement du paiement : {str(e)}"
+            detail=f"Erreur lors de l'enregistrement du paiement : {err_msg}"
         )
 
 

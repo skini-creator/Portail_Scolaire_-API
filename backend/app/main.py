@@ -123,33 +123,31 @@ def apply_schema_migrations(engine):
         except Exception as e:
             print(f"[MigrationNotice] Échec de la migration du type users.id -> {e}")
 
-    # 2. Ajout des colonnes indispensables si manquantes
-    queries = [
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;",
-        "DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()) THEN ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL; END IF; END $$;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
-        "UPDATE users SET is_active = TRUE WHERE is_active IS NULL;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'PARENT';",
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
-        "UPDATE students SET is_active = TRUE WHERE is_active IS NULL;",
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS class_name VARCHAR;",
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year VARCHAR;",
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS class_id INTEGER;",
-        "ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year_id INTEGER;",
-        "ALTER TABLE school_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP;",
-        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_by_id VARCHAR;",
-        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;",
-        "UPDATE students SET class_name = '6ème A' WHERE (class_name IS NULL OR class_name = '') AND (class_id IS NULL);",
-    ]
-    for query in queries:
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(query))
-        except Exception as e:
-            if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
-                print(f"[MigrationNotice] {query} -> {e}")
+    # 2. Ajout des colonnes indispensables si manquantes (exécuté en une seule transaction)
+    batch_alter_script = """
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS user_id VARCHAR;
+    DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'students' AND column_name = 'parent_id' AND table_schema = current_schema()) THEN ALTER TABLE students ALTER COLUMN parent_id DROP NOT NULL; END IF; END $$;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    UPDATE users SET is_active = TRUE WHERE is_active IS NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'PARENT';
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    UPDATE students SET is_active = TRUE WHERE is_active IS NULL;
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS class_name VARCHAR;
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year VARCHAR;
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS class_id INTEGER;
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS school_year_id INTEGER;
+    ALTER TABLE school_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS validated_by_id VARCHAR;
+    ALTER TABLE payments ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+    UPDATE students SET class_name = '6ème A' WHERE (class_name IS NULL OR class_name = '') AND (class_id IS NULL);
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(batch_alter_script))
+    except Exception as e:
+        print(f"[MigrationNotice] Batch alter -> {e}")
 
 
 # --- GESTIONNAIRE DE LIFESPAN (INITIALISATION DE LA BDD AU DÉMARRAGE) ---
@@ -245,9 +243,11 @@ async def lifespan(app: FastAPI):
                 "2nde C", "2nde LE", "1ère D", "1ère A1", 
                 "Terminale C", "Terminale D", "Terminale A1"
             ]
+            existing_class_names = set(
+                r[0] for r in db.query(SchoolClass.name).filter(SchoolClass.school_id == school_obj.id).all()
+            )
             for cname in default_classes:
-                c_exists = db.query(SchoolClass).filter(SchoolClass.name == cname, SchoolClass.school_id == school_obj.id).first()
-                if not c_exists:
+                if cname not in existing_class_names:
                     new_class = SchoolClass(
                         name=cname,
                         school_id=school_obj.id,
@@ -270,7 +270,8 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan,
+    redirect_slashes=False
 )
 
 
